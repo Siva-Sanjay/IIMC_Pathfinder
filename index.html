@@ -439,8 +439,12 @@
   googleSat.addTo(map);
   googleHybridNoPOI.addTo(map);
   
-  const roomsCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
-  const pathwaysCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=0&single=true&output=csv';
+  // Google Sheets URLs wrapped with CORS proxy to avoid silent browser fetch blocks
+  const rawRoomsUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
+  const rawPathwaysUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=0&single=true&output=csv';
+
+  const roomsCsvUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(rawRoomsUrl);
+  const pathwaysCsvUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(rawPathwaysUrl);
 
   let allRooms = [];
   let pathwayEdges = [];
@@ -461,6 +465,9 @@
       populateBuildingDropdown();
       clearMarkers();
       checkUrlSearchParam();
+    },
+    error: function(err) {
+      console.error("Failed to load rooms CSV:", err);
     }
   });
 
@@ -472,6 +479,10 @@
     complete: function(results) {
       pathwayEdges = results.data;
       buildGraph();
+    },
+    error: function(err) {
+      console.error("Failed to load pathways CSV:", err);
+      alert("Failed to load network data. Check sheet permissions.");
     }
   });
 
@@ -600,7 +611,7 @@
   // Request user location and display turn-by-turn route
   function startNavigationTo(destLat, destLng, roomName) {
     if (Object.keys(pathwayNodes).length === 0) {
-      alert("Pathway network is still loading. Please try again in a moment.");
+      alert("Pathway network is still loading or failed to load. Please refresh and try again.");
       return;
     }
 
@@ -791,10 +802,9 @@
     const selectedBuilding = document.getElementById('buildingFilter').value;
     if (!selectedBuilding || selectedBuilding === "") return;
 
-    const freshCsvUrl = roomsCsvUrl + '&t=' + new Date().getTime();
     const buildingPoints = [];
 
-    Papa.parse(freshCsvUrl, {
+    Papa.parse(roomsCsvUrl, {
       download: true,
       header: true,
       skipEmptyLines: true,
@@ -1001,6 +1011,5 @@
     window.history.replaceState({ path: newUrl }, '', newUrl);
   }
 </script>
-
 </body>
 </html>
