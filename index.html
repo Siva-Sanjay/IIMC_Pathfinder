@@ -491,26 +491,46 @@
     graph = {};
     pathwayNodes = {};
 
-    pathwayEdges.forEach(edge => {
-      const u = edge.Start_Node_ID || edge.Start_ID || edge.StartNode;
-      const v = edge.End_Node_ID || edge.End_ID || edge.EndNode;
-      const uLat = parseFloat(edge.Start_Lat || edge.Start_Latitude);
-      const uLng = parseFloat(edge.Start_Lng || edge.Start_Longitude);
-      const vLat = parseFloat(edge.End_Lat || edge.End_Latitude);
-      const vLng = parseFloat(edge.End_Lng || edge.End_Longitude);
+    if (!pathwayEdges || pathwayEdges.length === 0) return;
 
-      if (!u || !v || isNaN(uLat) || isNaN(uLng) || isNaN(vLat) || isNaN(vLng)) return;
+    pathwayEdges.forEach(row => {
+      const rawJson = row.Coordinates_JSON || row.coordinates_json || row.Coordinates;
+      if (!rawJson) return;
 
-      pathwayNodes[u] = [uLat, uLng];
-      pathwayNodes[v] = [vLat, vLng];
+      let coords = [];
+      try {
+        coords = JSON.parse(rawJson);
+      } catch (e) {
+        return;
+      }
 
-      const dist = getDistanceMeters(uLat, uLng, vLat, vLng);
+      if (!Array.isArray(coords) || coords.length < 2) return;
 
-      if (!graph[u]) graph[u] = [];
-      if (!graph[v]) graph[v] = [];
+      for (let i = 0; i < coords.length - 1; i++) {
+        const p1 = coords[i];
+        const p2 = coords[i + 1];
 
-      graph[u].push({ node: v, weight: dist });
-      graph[v].push({ node: u, weight: dist });
+        const uLat = parseFloat(p1[0]);
+        const uLng = parseFloat(p1[1]);
+        const vLat = parseFloat(p2[0]);
+        const vLng = parseFloat(p2[1]);
+
+        if (isNaN(uLat) || isNaN(uLng) || isNaN(vLat) || isNaN(vLng)) continue;
+
+        const u = `${uLat.toFixed(6)},${uLng.toFixed(6)}`;
+        const v = `${vLat.toFixed(6)},${vLng.toFixed(6)}`;
+
+        pathwayNodes[u] = [uLat, uLng];
+        pathwayNodes[v] = [vLat, vLng];
+
+        const dist = getDistanceMeters(uLat, uLng, vLat, vLng);
+
+        if (!graph[u]) graph[u] = [];
+        if (!graph[v]) graph[v] = [];
+
+        graph[u].push({ node: v, weight: dist });
+        graph[v].push({ node: u, weight: dist });
+      }
     });
   }
 
@@ -579,6 +599,11 @@
 
   // Request user location and display turn-by-turn route
   function startNavigationTo(destLat, destLng, roomName) {
+    if (Object.keys(pathwayNodes).length === 0) {
+      alert("Pathway network is still loading. Please try again in a moment.");
+      return;
+    }
+
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser.");
       return;
