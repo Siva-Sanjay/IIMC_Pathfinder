@@ -312,19 +312,25 @@
       margin-top: 10px;
     }
 
-    .btn-open-maps {
+    .btn-directions {
       flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 4px;
       padding: 8px 10px;
-      background-color: #0f172a;
+      background-color: #2563eb;
       color: #ffffff !important;
-      text-decoration: none;
+      border: none;
       font-weight: 600;
       border-radius: 12px;
       font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-directions:hover {
+      background-color: #1d4ed8;
     }
 
     .btn-share {
@@ -341,6 +347,42 @@
       border-radius: 12px;
       font-size: 12px;
       cursor: pointer;
+    }
+
+    /* Navigation Status Overlay */
+    #navBanner {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(15, 23, 42, 0.94);
+      backdrop-filter: blur(12px);
+      color: white;
+      padding: 12px 18px;
+      border-radius: 20px;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      font-size: 14px;
+      font-weight: 600;
+      width: max-content;
+      max-width: 90vw;
+    }
+
+    #navBanner button {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #navBanner button:hover {
+      background: rgba(255, 255, 255, 0.3);
     }
   </style>
 </head>
@@ -371,6 +413,11 @@
   </div>
 </div>
 
+<div id="navBanner">
+  <span id="navInfo">Calculating route...</span>
+  <button onclick="stopNavigation()">Cancel</button>
+</div>
+
 <div id="map"></div>
 
 <script>
@@ -392,12 +439,20 @@
   googleSat.addTo(map);
   googleHybridNoPOI.addTo(map);
   
-  const sheetCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
+  const roomsCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
+  const pathwaysCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=0&single=true&output=csv';
 
   let allRooms = [];
-  let activeMarkers = [];
+  let pathwayEdges = [];
+  let pathwayNodes = {};
+  let graph = {};
 
-  Papa.parse(sheetCsvUrl, {
+  let activeMarkers = [];
+  let currentRouteLine = null;
+  let userLocationMarker = null;
+
+  // Load Rooms CSV
+  Papa.parse(roomsCsvUrl, {
     download: true,
     header: true,
     skipEmptyLines: true,
@@ -408,6 +463,202 @@
       checkUrlSearchParam();
     }
   });
+
+  // Load Pathways CSV & Build Routing Graph
+  Papa.parse(pathwaysCsvUrl, {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      pathwayEdges = results.data;
+      buildGraph();
+    }
+  });
+
+  // Calculate distance between 2 coordinates in meters (Haversine Formula)
+  function getDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  function buildGraph() {
+    graph = {};
+    pathwayNodes = {};
+
+    pathwayEdges.forEach(edge => {
+      const u = edge.Start_Node_ID || edge.Start_ID || edge.StartNode;
+      const v = edge.End_Node_ID || edge.End_ID || edge.EndNode;
+      const uLat = parseFloat(edge.Start_Lat || edge.Start_Latitude);
+      const uLng = parseFloat(edge.Start_Lng || edge.Start_Longitude);
+      const vLat = parseFloat(edge.End_Lat || edge.End_Latitude);
+      const vLng = parseFloat(edge.End_Lng || edge.End_Longitude);
+
+      if (!u || !v || isNaN(uLat) || isNaN(uLng) || isNaN(vLat) || isNaN(vLng)) return;
+
+      pathwayNodes[u] = [uLat, uLng];
+      pathwayNodes[v] = [vLat, vLng];
+
+      const dist = getDistanceMeters(uLat, uLng, vLat, vLng);
+
+      if (!graph[u]) graph[u] = [];
+      if (!graph[v]) graph[v] = [];
+
+      graph[u].push({ node: v, weight: dist });
+      graph[v].push({ node: u, weight: dist });
+    });
+  }
+
+  // Find closest graph node to any given GPS coordinate
+  function findNearestNode(lat, lng) {
+    let nearestNode = null;
+    let minDistance = Infinity;
+
+    for (const [nodeId, coords] of Object.entries(pathwayNodes)) {
+      const dist = getDistanceMeters(lat, lng, coords[0], coords[1]);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearestNode = nodeId;
+      }
+    }
+    return { nodeId: nearestNode, distance: minDistance };
+  }
+
+  // Dijkstra Shortest Path Algorithm
+  function dijkstra(startNode, targetNode) {
+    const distances = {};
+    const previous = {};
+    const nodes = new Set();
+
+    for (const node in graph) {
+      distances[node] = Infinity;
+      previous[node] = null;
+      nodes.add(node);
+    }
+    distances[startNode] = 0;
+
+    while (nodes.size > 0) {
+      let smallest = null;
+      for (const node of nodes) {
+        if (smallest === null || distances[node] < distances[smallest]) {
+          smallest = node;
+        }
+      }
+
+      if (smallest === null || distances[smallest] === Infinity) break;
+      if (smallest === targetNode) break;
+
+      nodes.delete(smallest);
+
+      for (const neighbor of graph[smallest]) {
+        const alt = distances[smallest] + neighbor.weight;
+        if (alt < distances[neighbor.node]) {
+          distances[neighbor.node] = alt;
+          previous[neighbor.node] = smallest;
+        }
+      }
+    }
+
+    const path = [];
+    let curr = targetNode;
+    while (curr) {
+      path.unshift(curr);
+      curr = previous[curr];
+    }
+
+    return {
+      path: path.length > 1 ? path : [],
+      distance: distances[targetNode]
+    };
+  }
+
+  // Request user location and display turn-by-turn route
+  function startNavigationTo(destLat, destLng, roomName) {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    document.getElementById('navBanner').style.display = 'flex';
+    document.getElementById('navInfo').textContent = 'Fetching current location...';
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude;
+        const userLng = position.coords.longitude;
+
+        if (userLocationMarker) map.removeLayer(userLocationMarker);
+
+        userLocationMarker = L.marker([userLat, userLng], {
+          icon: L.divIcon({
+            className: 'user-pos-icon',
+            html: `<div style="background:#2563eb; width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3);"></div>`
+          })
+        }).addTo(map);
+
+        const startSnap = findNearestNode(userLat, userLng);
+        const endSnap = findNearestNode(destLat, destLng);
+
+        if (!startSnap.nodeId || !endSnap.nodeId) {
+          alert("Could not snap route to network.");
+          stopNavigation();
+          return;
+        }
+
+        const route = dijkstra(startSnap.nodeId, endSnap.nodeId);
+
+        if (route.path.length === 0) {
+          alert("No walkable pathway route found to this location.");
+          stopNavigation();
+          return;
+        }
+
+        const latLngs = [
+          [userLat, userLng],
+          ...route.path.map(id => pathwayNodes[id]),
+          [destLat, destLng]
+        ];
+
+        if (currentRouteLine) map.removeLayer(currentRouteLine);
+
+        currentRouteLine = L.polyline(latLngs, {
+          color: '#2563eb',
+          weight: 6,
+          opacity: 0.85,
+          lineCap: 'round'
+        }).addTo(map);
+
+        const totalMeters = Math.round(route.distance + startSnap.distance + endSnap.distance);
+        const mins = Math.ceil(totalMeters / 80);
+
+        document.getElementById('navInfo').textContent = `🚶 ${totalMeters}m (${mins} min walk) to ${roomName}`;
+
+        map.fitBounds(currentRouteLine.getBounds(), { padding: [80, 80] });
+      },
+      (error) => {
+        alert("Location access denied or unavailable. Please enable GPS permissions.");
+        stopNavigation();
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  function stopNavigation() {
+    document.getElementById('navBanner').style.display = 'none';
+    if (currentRouteLine) {
+      map.removeLayer(currentRouteLine);
+      currentRouteLine = null;
+    }
+    if (userLocationMarker) {
+      map.removeLayer(userLocationMarker);
+      userLocationMarker = null;
+    }
+  }
 
   function populateBuildingDropdown() {
     const select = document.getElementById('buildingFilter');
@@ -425,6 +676,7 @@
   function clearMarkers() {
     activeMarkers.forEach(m => map.removeLayer(m));
     activeMarkers = [];
+    stopNavigation();
   }
 
   function normalizeText(text) {
@@ -514,7 +766,7 @@
     const selectedBuilding = document.getElementById('buildingFilter').value;
     if (!selectedBuilding || selectedBuilding === "") return;
 
-    const freshCsvUrl = sheetCsvUrl + '&t=' + new Date().getTime();
+    const freshCsvUrl = roomsCsvUrl + '&t=' + new Date().getTime();
     const buildingPoints = [];
 
     Papa.parse(freshCsvUrl, {
@@ -663,7 +915,6 @@
       const lng = parseFloat(room.Longitude);
 
       if (!isNaN(lat) && !isNaN(lng)) {
-        const gmapsDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
         const roomNo = room.Room_Number || room['Room Number'] || room.Room_No || room.Room || '';
         const roomId = room.Room_ID || roomNo;
         const buildingName = room.Building || 'N/A';
@@ -674,16 +925,16 @@
         const popupContent = `
           <div>
             <div class="popup-header">
-              <span class="badge-location"><span class="badge-dot"></span> ${room.Category}</span>
+              <span class="badge-location"><span class="badge-dot"></span> ${room.Category || 'Room'}</span>
             </div>
             
-            <h2 class="popup-title">${room.Room_Name}</h2>
+            <h2 class="popup-title">${room.Room_Name || roomNo}</h2>
             <div class="popup-subtitle">${buildingName} •  ${floorName}</div>
 
             <div class="popup-actions">
-              <a href="${gmapsDirectionsUrl}" target="_blank" class="btn-open-maps">
-                Maps
-              </a>
+              <button class="btn-directions" onclick="startNavigationTo(${lat}, ${lng}, '${(room.Room_Name || roomNo).replace(/'/g, "\\'")}')">
+                Directions
+              </button>
               <button class="btn-share" onclick="copyRoomUrl(this, '${roomId}')">
                 Share
               </button>
@@ -702,21 +953,14 @@
       const targetLatLng = bounds[0];
       const zoomLevel = 20;
 
-      // 1. Open popup immediately without auto-pan trigger
       if (activeMarkers[0]) {
         activeMarkers[0].openPopup();
       }
 
-      // 2. Project target point to screen pixel coordinates
       const targetPoint = map.project(targetLatLng, zoomLevel);
-
-      // 3. Offset target pixel point downward (100px shift) to accommodate popup height cleanly
       const offsetPoint = L.point(targetPoint.x, targetPoint.y - 100);
-
-      // 4. Convert back to LatLng coordinate space
       const offsetLatLng = map.unproject(offsetPoint, zoomLevel);
 
-      // 5. Perform a single smooth camera transition directly to offset coordinate
       map.flyTo(offsetLatLng, zoomLevel, {
         animate: true,
         duration: 1.2,
