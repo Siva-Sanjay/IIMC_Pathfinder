@@ -312,25 +312,19 @@
       margin-top: 10px;
     }
 
-    .btn-directions {
+    .btn-open-maps {
       flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 4px;
       padding: 8px 10px;
-      background-color: #2563eb;
+      background-color: #0f172a;
       color: #ffffff !important;
-      border: none;
+      text-decoration: none;
       font-weight: 600;
       border-radius: 12px;
       font-size: 12px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .btn-directions:hover {
-      background-color: #1d4ed8;
     }
 
     .btn-share {
@@ -347,42 +341,6 @@
       border-radius: 12px;
       font-size: 12px;
       cursor: pointer;
-    }
-
-    /* Navigation Status Overlay */
-    #navBanner {
-      position: absolute;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1000;
-      background: rgba(15, 23, 42, 0.94);
-      backdrop-filter: blur(12px);
-      color: white;
-      padding: 12px 18px;
-      border-radius: 20px;
-      display: none;
-      align-items: center;
-      gap: 12px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-      font-size: 14px;
-      font-weight: 600;
-      width: max-content;
-      max-width: 90vw;
-    }
-
-    #navBanner button {
-      background: rgba(255, 255, 255, 0.2);
-      border: none;
-      color: white;
-      padding: 4px 10px;
-      border-radius: 10px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-
-    #navBanner button:hover {
-      background: rgba(255, 255, 255, 0.3);
     }
   </style>
 </head>
@@ -413,11 +371,6 @@
   </div>
 </div>
 
-<div id="navBanner">
-  <span id="navInfo">Calculating route...</span>
-  <button onclick="stopNavigation()">Cancel</button>
-</div>
-
 <div id="map"></div>
 
 <script>
@@ -439,24 +392,20 @@
   googleSat.addTo(map);
   googleHybridNoPOI.addTo(map);
   
-  // Google Sheets URLs wrapped with CORS proxy to avoid silent browser fetch blocks
-  const rawRoomsUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
-  const rawPathwaysUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=0&single=true&output=csv';
-
-  const roomsCsvUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(rawRoomsUrl);
-  const pathwaysCsvUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(rawPathwaysUrl);
+  const sheetCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=956140635&single=true&output=csv';
+  const pathsCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTMqGQWWtVef47JkjW_yzDHMGSDHibCGHl1alPbr3G_1pzqoY5ojKvxB2Zov8cj2-34BW7I8gGYX4zK/pub?gid=0&single=true&output=csv';
 
   let allRooms = [];
-  let pathwayEdges = [];
-  let pathwayNodes = {};
-  let graph = {};
-
   let activeMarkers = [];
-  let currentRouteLine = null;
+  
+  // Custom Routing Engine Variables
+  let routeGraph = {}; 
+  let allPathSegments = []; 
+  let currentRouteLayer = null;
   let userLocationMarker = null;
 
-  // Load Rooms CSV
-  Papa.parse(roomsCsvUrl, {
+  // 1. Load Rooms
+  Papa.parse(sheetCsvUrl, {
     download: true,
     header: true,
     skipEmptyLines: true,
@@ -465,236 +414,121 @@
       populateBuildingDropdown();
       clearMarkers();
       checkUrlSearchParam();
-    },
-    error: function(err) {
-      console.error("Failed to load rooms CSV:", err);
     }
   });
 
-  // Load Pathways CSV & Build Routing Graph
-  Papa.parse(pathwaysCsvUrl, {
+  // 2. Load Paths & Build Custom Navigation Graph
+  Papa.parse(pathsCsvUrl, {
     download: true,
     header: true,
     skipEmptyLines: true,
     complete: function(results) {
-      pathwayEdges = results.data;
-      buildGraph();
-    },
-    error: function(err) {
-      console.error("Failed to load pathways CSV:", err);
-      alert("Failed to load network data. Check sheet permissions.");
+      results.data.forEach(row => {
+        if (row.Coordinates_JSON) {
+          try {
+            const coords = JSON.parse(row.Coordinates_JSON);
+            for (let i = 0; i < coords.length - 1; i++) {
+              const p1 = coords[i];
+              const p2 = coords[i+1];
+              
+              const key1 = p1[0] + "," + p1[1];
+              const key2 = p2[0] + "," + p2[1];
+              const dist = getHaversineDistance(p1[0], p1[1], p2[0], p2[1]);
+              
+              if(!routeGraph[key1]) routeGraph[key1] = [];
+              if(!routeGraph[key2]) routeGraph[key2] = [];
+              
+              // Add bidirectional edges
+              routeGraph[key1].push({ node: key2, dist: dist });
+              routeGraph[key2].push({ node: key1, dist: dist });
+              
+              // Save segments for snapping algorithm
+              allPathSegments.push({ A: p1, B: p2, keyA: key1, keyB: key2 });
+            }
+          } catch(e) { console.error("Error parsing path JSON", e); }
+        }
+      });
     }
   });
 
-  // Calculate distance between 2 coordinates in meters (Haversine Formula)
-  function getDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  /* MATH UTILITIES FOR ROUTING */
+  function getHaversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // meters
+    const φ1 = lat1 * Math.PI/180;
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   }
 
-  function buildGraph() {
-    graph = {};
-    pathwayNodes = {};
+  // Projects an off-path coordinate onto the nearest path line
+  function snapPointToSegment(P, A, B) {
+    const lat0 = A[0] * Math.PI / 180;
+    const kx = Math.cos(lat0) * 111320; 
+    const ky = 111000;
 
-    if (!pathwayEdges || pathwayEdges.length === 0) return;
+    const px = (P[1] - A[1]) * kx;
+    const py = (P[0] - A[0]) * ky;
+    const bx = (B[1] - A[1]) * kx;
+    const by = (B[0] - A[0]) * ky;
 
-    pathwayEdges.forEach(row => {
-      const rawJson = row.Coordinates_JSON || row.coordinates_json || row.Coordinates;
-      if (!rawJson) return;
+    const magAB2 = bx*bx + by*by;
+    let u = magAB2 === 0 ? 0 : (px*bx + py*by) / magAB2;
+    
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
 
-      let coords = [];
-      try {
-        coords = JSON.parse(rawJson);
-      } catch (e) {
-        return;
-      }
-
-      if (!Array.isArray(coords) || coords.length < 2) return;
-
-      for (let i = 0; i < coords.length - 1; i++) {
-        const p1 = coords[i];
-        const p2 = coords[i + 1];
-
-        const uLat = parseFloat(p1[0]);
-        const uLng = parseFloat(p1[1]);
-        const vLat = parseFloat(p2[0]);
-        const vLng = parseFloat(p2[1]);
-
-        if (isNaN(uLat) || isNaN(uLng) || isNaN(vLat) || isNaN(vLng)) continue;
-
-        const u = `${uLat.toFixed(6)},${uLng.toFixed(6)}`;
-        const v = `${vLat.toFixed(6)},${vLng.toFixed(6)}`;
-
-        pathwayNodes[u] = [uLat, uLng];
-        pathwayNodes[v] = [vLat, vLng];
-
-        const dist = getDistanceMeters(uLat, uLng, vLat, vLng);
-
-        if (!graph[u]) graph[u] = [];
-        if (!graph[v]) graph[v] = [];
-
-        graph[u].push({ node: v, weight: dist });
-        graph[v].push({ node: u, weight: dist });
-      }
-    });
+    const projX = A[1] + (u * (B[1] - A[1]));
+    const projY = A[0] + (u * (B[0] - A[0]));
+    
+    const dist = getHaversineDistance(P[0], P[1], projY, projX);
+    return { point: [projY, projX], dist: dist, u: u };
   }
 
-  // Find closest graph node to any given GPS coordinate
-  function findNearestNode(lat, lng) {
-    let nearestNode = null;
-    let minDistance = Infinity;
-
-    for (const [nodeId, coords] of Object.entries(pathwayNodes)) {
-      const dist = getDistanceMeters(lat, lng, coords[0], coords[1]);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestNode = nodeId;
-      }
-    }
-    return { nodeId: nearestNode, distance: minDistance };
-  }
-
-  // Dijkstra Shortest Path Algorithm
-  function dijkstra(startNode, targetNode) {
+  // Dijkstra's Shortest Path Algorithm
+  function runDijkstra(startKey, endKey, graph) {
     const distances = {};
-    const previous = {};
-    const nodes = new Set();
+    const prev = {};
+    const queue = [];
 
-    for (const node in graph) {
-      distances[node] = Infinity;
-      previous[node] = null;
-      nodes.add(node);
+    for (let v in graph) {
+      distances[v] = Infinity;
+      prev[v] = null;
     }
-    distances[startNode] = 0;
+    distances[startKey] = 0;
+    queue.push({ id: startKey, dist: 0 });
 
-    while (nodes.size > 0) {
-      let smallest = null;
-      for (const node of nodes) {
-        if (smallest === null || distances[node] < distances[smallest]) {
-          smallest = node;
-        }
-      }
+    while (queue.length > 0) {
+      queue.sort((a, b) => a.dist - b.dist);
+      const current = queue.shift();
+      const u = current.id;
 
-      if (smallest === null || distances[smallest] === Infinity) break;
-      if (smallest === targetNode) break;
+      if (u === endKey) break;
+      if (current.dist > distances[u]) continue;
 
-      nodes.delete(smallest);
-
-      for (const neighbor of graph[smallest]) {
-        const alt = distances[smallest] + neighbor.weight;
-        if (alt < distances[neighbor.node]) {
-          distances[neighbor.node] = alt;
-          previous[neighbor.node] = smallest;
+      if(graph[u]) {
+        for (let neighbor of graph[u]) {
+          const alt = distances[u] + neighbor.dist;
+          if (alt < distances[neighbor.node]) {
+            distances[neighbor.node] = alt;
+            prev[neighbor.node] = u;
+            queue.push({ id: neighbor.node, dist: alt });
+          }
         }
       }
     }
 
     const path = [];
-    let curr = targetNode;
+    let curr = endKey;
     while (curr) {
       path.unshift(curr);
-      curr = previous[curr];
+      curr = prev[curr];
     }
-
-    return {
-      path: path.length > 1 ? path : [],
-      distance: distances[targetNode]
-    };
+    return (path.length > 1 || startKey === endKey) ? path : null;
   }
-
-  // Request user location and display turn-by-turn route
-  function startNavigationTo(destLat, destLng, roomName) {
-    if (Object.keys(pathwayNodes).length === 0) {
-      alert("Pathway network is still loading or failed to load. Please refresh and try again.");
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
-      return;
-    }
-
-    document.getElementById('navBanner').style.display = 'flex';
-    document.getElementById('navInfo').textContent = 'Fetching current location...';
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-
-        if (userLocationMarker) map.removeLayer(userLocationMarker);
-
-        userLocationMarker = L.marker([userLat, userLng], {
-          icon: L.divIcon({
-            className: 'user-pos-icon',
-            html: `<div style="background:#2563eb; width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3);"></div>`
-          })
-        }).addTo(map);
-
-        const startSnap = findNearestNode(userLat, userLng);
-        const endSnap = findNearestNode(destLat, destLng);
-
-        if (!startSnap.nodeId || !endSnap.nodeId) {
-          alert("Could not snap route to network.");
-          stopNavigation();
-          return;
-        }
-
-        const route = dijkstra(startSnap.nodeId, endSnap.nodeId);
-
-        if (route.path.length === 0) {
-          alert("No walkable pathway route found to this location.");
-          stopNavigation();
-          return;
-        }
-
-        const latLngs = [
-          [userLat, userLng],
-          ...route.path.map(id => pathwayNodes[id]),
-          [destLat, destLng]
-        ];
-
-        if (currentRouteLine) map.removeLayer(currentRouteLine);
-
-        currentRouteLine = L.polyline(latLngs, {
-          color: '#2563eb',
-          weight: 6,
-          opacity: 0.85,
-          lineCap: 'round'
-        }).addTo(map);
-
-        const totalMeters = Math.round(route.distance + startSnap.distance + endSnap.distance);
-        const mins = Math.ceil(totalMeters / 80);
-
-        document.getElementById('navInfo').textContent = `🚶 ${totalMeters}m (${mins} min walk) to ${roomName}`;
-
-        map.fitBounds(currentRouteLine.getBounds(), { padding: [80, 80] });
-      },
-      (error) => {
-        alert("Location access denied or unavailable. Please enable GPS permissions.");
-        stopNavigation();
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
-
-  function stopNavigation() {
-    document.getElementById('navBanner').style.display = 'none';
-    if (currentRouteLine) {
-      map.removeLayer(currentRouteLine);
-      currentRouteLine = null;
-    }
-    if (userLocationMarker) {
-      map.removeLayer(userLocationMarker);
-      userLocationMarker = null;
-    }
-  }
+  /* END MATH UTILITIES */
 
   function populateBuildingDropdown() {
     const select = document.getElementById('buildingFilter');
@@ -712,7 +546,9 @@
   function clearMarkers() {
     activeMarkers.forEach(m => map.removeLayer(m));
     activeMarkers = [];
-    stopNavigation();
+    
+    if (currentRouteLayer) map.removeLayer(currentRouteLayer);
+    if (userLocationMarker) map.removeLayer(userLocationMarker);
   }
 
   function normalizeText(text) {
@@ -802,9 +638,10 @@
     const selectedBuilding = document.getElementById('buildingFilter').value;
     if (!selectedBuilding || selectedBuilding === "") return;
 
+    const freshCsvUrl = sheetCsvUrl + '&t=' + new Date().getTime();
     const buildingPoints = [];
 
-    Papa.parse(roomsCsvUrl, {
+    Papa.parse(freshCsvUrl, {
       download: true,
       header: true,
       skipEmptyLines: true,
@@ -960,16 +797,16 @@
         const popupContent = `
           <div>
             <div class="popup-header">
-              <span class="badge-location"><span class="badge-dot"></span> ${room.Category || 'Room'}</span>
+              <span class="badge-location"><span class="badge-dot"></span> ${room.Category}</span>
             </div>
             
-            <h2 class="popup-title">${room.Room_Name || roomNo}</h2>
+            <h2 class="popup-title">${room.Room_Name}</h2>
             <div class="popup-subtitle">${buildingName} •  ${floorName}</div>
 
             <div class="popup-actions">
-              <button class="btn-directions" onclick="startNavigationTo(${lat}, ${lng}, '${(room.Room_Name || roomNo).replace(/'/g, "\\'")}')">
+              <a href="javascript:void(0)" onclick="getDirections(${lat}, ${lng})" class="btn-open-maps">
                 Directions
-              </button>
+              </a>
               <button class="btn-share" onclick="copyRoomUrl(this, '${roomId}')">
                 Share
               </button>
@@ -1010,6 +847,120 @@
     const newUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(targetRoomId)}`;
     window.history.replaceState({ path: newUrl }, '', newUrl);
   }
+
+  // The custom graphing function that executes when user clicks "Directions"
+  function getDirections(destLat, destLng) {
+    if (Object.keys(routeGraph).length === 0 || allPathSegments.length === 0) {
+      alert("Campus paths are still loading. Please try again in a few seconds.");
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition((position) => {
+      const userLat = position.coords.latitude;
+      const userLng = position.coords.longitude;
+      
+      const userP = [userLat, userLng];
+      const destP = [destLat, destLng];
+
+      if (currentRouteLayer) map.removeLayer(currentRouteLayer);
+      if (userLocationMarker) map.removeLayer(userLocationMarker);
+
+      userLocationMarker = L.circleMarker(userP, {
+        radius: 6,
+        fillColor: "#3b82f6",
+        color: "#ffffff",
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 1
+      }).addTo(map);
+
+      // Snap Both Start and End Points to the Nearest Path Segment
+      let bestS = null, bestE = null;
+      let minDistS = Infinity, minDistE = Infinity;
+
+      allPathSegments.forEach(seg => {
+        const resS = snapPointToSegment(userP, seg.A, seg.B);
+        if (resS.dist < minDistS) { minDistS = resS.dist; bestS = { ...resS, seg: seg }; }
+        
+        const resE = snapPointToSegment(destP, seg.A, seg.B);
+        if (resE.dist < minDistE) { minDistE = resE.dist; bestE = { ...resE, seg: seg }; }
+      });
+
+      // Clone Graph for temporary projection nodes
+      const tg = {};
+      for(let k in routeGraph) { tg[k] = [...routeGraph[k]]; }
+
+      const kS = bestS.point[0]+","+bestS.point[1];
+      const kE = bestE.point[0]+","+bestE.point[1];
+
+      tg[kS] = [];
+      tg[kE] = [];
+
+      // Link User snapped point to its surrounding segment points
+      const dSA = getHaversineDistance(bestS.point[0], bestS.point[1], bestS.seg.A[0], bestS.seg.A[1]);
+      const dSB = getHaversineDistance(bestS.point[0], bestS.point[1], bestS.seg.B[0], bestS.seg.B[1]);
+      tg[kS].push({node: bestS.seg.keyA, dist: dSA}, {node: bestS.seg.keyB, dist: dSB});
+      tg[bestS.seg.keyA].push({node: kS, dist: dSA});
+      tg[bestS.seg.keyB].push({node: kS, dist: dSB});
+
+      // Link Dest snapped point to its surrounding segment points
+      const dEA = getHaversineDistance(bestE.point[0], bestE.point[1], bestE.seg.A[0], bestE.seg.A[1]);
+      const dEB = getHaversineDistance(bestE.point[0], bestE.point[1], bestE.seg.B[0], bestE.seg.B[1]);
+      tg[kE].push({node: bestE.seg.keyA, dist: dEA}, {node: bestE.seg.keyB, dist: dEB});
+      tg[bestE.seg.keyA].push({node: kE, dist: dEA});
+      tg[bestE.seg.keyB].push({node: kE, dist: dEB});
+
+      // Edge case: if they snapped to the exact same segment
+      if (bestS.seg.keyA === bestE.seg.keyA && bestS.seg.keyB === bestE.seg.keyB) {
+        const dSE = getHaversineDistance(bestS.point[0], bestS.point[1], bestE.point[0], bestE.point[1]);
+        tg[kS].push({node: kE, dist: dSE});
+        tg[kE].push({node: kS, dist: dSE});
+      }
+
+      // Calculate path
+      const pathKeys = runDijkstra(kS, kE, tg);
+
+      if(!pathKeys) {
+        alert("Could not calculate a path. Make sure your paths network is fully connected.");
+        return;
+      }
+
+      // Reconstruct final path (Start -> Snapped Network -> End)
+      const latlngs = [userP];
+      pathKeys.forEach(k => {
+        const pts = k.split(',');
+        latlngs.push([parseFloat(pts[0]), parseFloat(pts[1])]);
+      });
+      latlngs.push(destP);
+
+      // Draw the path
+      currentRouteLayer = L.polyline(latlngs, {
+        color: '#3b82f6', 
+        weight: 5,
+        opacity: 0.8,
+        dashArray: '1, 10', // Dotted walking path
+        lineCap: 'round'
+      }).addTo(map);
+
+      // Adjust camera
+      const routeBounds = L.latLngBounds(latlngs);
+      map.fitBounds(routeBounds, { padding: [50, 50] });
+      map.closePopup();
+
+    }, (error) => {
+      alert("Could not get your location. Please ensure location permissions are granted.");
+    }, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    });
+  }
 </script>
+
 </body>
 </html>
