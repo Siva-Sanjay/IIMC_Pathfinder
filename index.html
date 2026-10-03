@@ -343,33 +343,31 @@
       cursor: pointer;
     }
 
-    /* --- NEW LOADER CSS --- */
+    /* --- UPDATED FULL-SCREEN LOADER CSS --- */
     #routeLoader {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       z-index: 2000;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      padding: 16px 24px;
-      border-radius: 20px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
-      border: 1px solid rgba(0,0,0,0.05);
-      display: none; /* Hidden by default */
+      background: rgba(255, 255, 255, 0.4); /* 40% transparent white */
+      backdrop-filter: blur(6px); /* Blurs the map in the background */
+      -webkit-backdrop-filter: blur(6px);
+      display: none; /* Hidden by default, toggled to flex */
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      justify-content: center; /* Centers the content vertically */
+      gap: 16px;
       text-align: center;
-      max-width: 80%; /* Ensures long quotes don't overflow small screens */
+      padding: 24px;
     }
 
     .loader-spinner {
-      width: 28px;
-      height: 28px;
-      border: 3px solid #f1f5f9;
-      border-top: 3px solid #0f172a;
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(15, 23, 42, 0.15); /* Light gray rim */
+      border-top: 4px solid #0f172a; /* Dark solid top */
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
@@ -380,16 +378,18 @@
     }
 
     #routeLoader span {
-      font-size: 14px;
-      font-weight: 600;
+      font-size: 18px;
+      font-weight: 700;
       color: #0f172a;
       line-height: 1.4;
+      max-width: 80%;
+      text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8); /* Ensures text stays readable over the map */
     }
   </style>
 </head>
 <body>
 
-<!-- --- NEW LOADER HTML --- -->
+<!-- FULL SCREEN LOADER HTML -->
 <div id="routeLoader">
   <div class="loader-spinner"></div>
   <span id="loaderText">Loading...</span> <!-- Text gets replaced dynamically -->
@@ -425,7 +425,6 @@
 <script>
   // ==========================================
   // 📝 ADD YOUR NEW QUOTES HERE!
-  // Simply add new strings to this array.
   // ==========================================
   const loadingQuotes = [
     "Sip your mocha, while we walk through Joka ☕",
@@ -433,7 +432,6 @@
     "We leave no one behind, so wait while the path is aligned 🧭"
   ];
   // ==========================================
-
 
   const map = L.map('map', { zoomControl: false }).setView([22.44645, 88.30245], 19);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
