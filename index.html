@@ -595,6 +595,32 @@
   }
   /* END MATH UTILITIES */
 
+  // --- Handle Back Button ---
+  window.addEventListener('popstate', (event) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    if (!urlParams.has('room')) {
+      // If back brings us to a URL with no room, clear markers/routes and go home
+      clearMarkers();
+      const searchInput = document.getElementById('search');
+      if (searchInput) searchInput.value = '';
+      hideSuggestions();
+      map.flyTo([22.44645, 88.30245], 19, { animate: true, duration: 1.2 });
+    } else {
+      // If there's a room parameter, load it
+      const roomParam = urlParams.get('room');
+      const searchInput = document.getElementById('search');
+      if (searchInput) searchInput.value = roomParam;
+      
+      const cleanParam = normalizeText(roomParam);
+      const matchedRoom = allRooms.find(r => 
+        normalizeText(r.Room_ID) === cleanParam || 
+        normalizeText(r.Room_Number || r['Room Number']) === cleanParam
+      );
+      performSearch(true, matchedRoom);
+    }
+  });
+
   function populateBuildingDropdown() {
     const select = document.getElementById('buildingFilter');
     select.innerHTML = '<option value="ALL">All Buildings</option>';
@@ -923,7 +949,16 @@
 
     const targetRoomId = filtered[0].Room_ID || rawQuery;
     const newUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(targetRoomId)}`;
-    window.history.replaceState({ path: newUrl }, '', newUrl);
+    // window.history.replaceState({ path: newUrl }, '', newUrl);
+    // Push state so back button returns to clean home URL
+     if (!fromUrl) {
+      window.history.pushState({ path: newUrl }, '', newUrl);
+    }
+
+
+ 
+   
+    
   }
 
   // The custom graphing function that executes when user clicks "Directions"
