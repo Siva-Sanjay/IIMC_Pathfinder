@@ -325,25 +325,31 @@
       font-weight: 600;
       border-radius: 12px;
       font-size: 12px;
+      height: 36px;
     }
 
-    .btn-share {
-      flex: 1;
+    /* --- NEW CSS FOR SQUARE BUTTONS --- */
+    .btn-square {
+      flex: 0 0 36px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
-      padding: 8px 10px;
+      width: 36px;
+      height: 36px;
       background-color: #f1f5f9;
       color: #0f172a;
       border: none;
-      font-weight: 600;
       border-radius: 12px;
-      font-size: 12px;
       cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.2s ease;
     }
 
-    /* --- UPDATED FULL-SCREEN LOADER CSS --- */
+    .btn-square:hover {
+      background-color: #e2e8f0;
+    }
+    /* ---------------------------------- */
+
     #routeLoader {
       position: absolute;
       top: 0;
@@ -383,7 +389,7 @@
       color: #0f172a;
       line-height: 1.4;
       max-width: 80%;
-      text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8); /* Ensures text stays readable over the map */
+      text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8);
     }
   </style>
 </head>
@@ -392,7 +398,7 @@
 <!-- FULL SCREEN LOADER HTML -->
 <div id="routeLoader">
   <div class="loader-spinner"></div>
-  <span id="loaderText">Loading...</span> <!-- Text gets replaced dynamically -->
+  <span id="loaderText">Loading...</span> 
 </div>
 
 <div id="controls">
@@ -650,15 +656,13 @@
     document.body.removeChild(textArea);
   }
 
+  // Updated to elegantly show a checkmark on the square button
   function showCopyFeedback(btn) {
-    const originalText = btn.innerHTML;
-    btn.innerHTML = "✓ Copied";
-    btn.style.backgroundColor = "#e2e8f0";
-    btn.style.color = "#166534";
+    const originalHTML = btn.innerHTML;
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#166534" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    
     setTimeout(() => {
-      btn.innerHTML = originalText;
-      btn.style.backgroundColor = "#f1f5f9";
-      btn.style.color = "#0f172a";
+      btn.innerHTML = originalHTML;
     }, 2000);
   }
 
@@ -853,6 +857,7 @@
 
         const marker = L.marker([lat, lng], { interactive: true });
 
+        // --- UPDATED POPUP BUTTONS ---
         const popupContent = `
           <div>
             <div class="popup-header">
@@ -866,9 +871,23 @@
               <a href="javascript:void(0)" onclick="getDirections(${lat}, ${lng})" class="btn-open-maps">
                 Directions
               </a>
-              <button class="btn-share" onclick="copyRoomUrl(this, '${roomId}')">
-                Share
+              
+              <button class="btn-square" onclick="copyRoomUrl(this, '${roomId}')" title="Share Link">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
               </button>
+              
+              <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank" class="btn-square" title="Open in Google Maps">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                  <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+              </a>
             </div>
           </div>
         `;
@@ -1020,7 +1039,8 @@
       // Adjust camera
       const routeBounds = L.latLngBounds(latlngs);
       map.fitBounds(routeBounds, { padding: [50, 50] });
-      map.closePopup();
+      
+      // Popup closing logic REMOVED here so it stays open!
 
       // --- HIDE LOADER WHEN DONE ---
       if (loader) loader.style.display = 'none';
